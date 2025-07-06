@@ -26,7 +26,7 @@
   "Keymap for todo-mode.")
 
 ;; Global keybinding
-(global-set-key (kbd "C-c C-t") 'todo-buffer-display)
+(global-set-key (kbd "C-.") 'todo-buffer-display)
 
 ;; Mode definition
 (defun todo-mode ()
@@ -54,12 +54,14 @@
   (let ((map (make-sparse-keymap)))
 
     ;; Quick create
+    (define-key map "0" 'todo-create-p0)
     (define-key map "1" 'todo-create-p1)
     (define-key map "2" 'todo-create-p2)
     (define-key map "3" 'todo-create-p3)
     (define-key map "4" 'todo-create-p4)
 
     ;; Update priority
+    (define-key map (kbd "C-c 0") 'todo-update-p0)
     (define-key map (kbd "C-c 1") 'todo-update-p1)
     (define-key map (kbd "C-c 2") 'todo-update-p2)
     (define-key map (kbd "C-c 3") 'todo-update-p3)
@@ -96,36 +98,25 @@
   "Ensure the todo file has the proper section headers, preserving existing content."
   (save-excursion
     (goto-char (point-min))
-    (let ((has-priority-1 (re-search-forward "^Priority 1$" nil t))
-          (has-priority-2 (progn (goto-char (point-min)) (re-search-forward "^Priority 2$" nil t)))
-          (has-priority-3 (progn (goto-char (point-min)) (re-search-forward "^Priority 3$" nil t)))
-          (has-priority-4 (progn (goto-char (point-min)) (re-search-forward "^Priority 4$" nil t)))
-          (buffer-empty (= (buffer-size) 0)))
-
-      ;; Only initialize if buffer is completely empty OR missing all priority sections
-      (when (or buffer-empty
-                (not (or has-priority-1 has-priority-2 has-priority-3 has-priority-4)))
-        ;; If buffer has content but no priority sections, preserve it by moving to end
-        (unless buffer-empty
-          (goto-char (point-max))
-          (unless (bolp) (insert "\n"))
-          (insert "\n--- Previous content preserved below ---\n"))
-
-        ;; Add priority sections at the beginning
-        (goto-char (point-min))
-        (insert "Priority 1\n")
-        (insert "-------------------------------------------------------------------------------\n")
-        (insert "\n")
-        (insert "Priority 2\n")
-        (insert "-------------------------------------------------------------------------------\n")
-        (insert "\n")
-        (insert "Priority 3\n")
-        (insert "-------------------------------------------------------------------------------\n")
-        (insert "\n")
-        (insert "Priority 4\n")
-        (insert "-------------------------------------------------------------------------------\n")
-        (insert "\n")
-        (save-buffer)))))
+    (unless (looking-at "Priority 0")
+      ;; File doesn't have proper format, initialize it
+      (erase-buffer)
+      (insert "Priority 0\n")
+      (insert "-------------------------------------------------------------------------------\n")
+      (insert "\n")
+      (insert "Priority 1\n")
+      (insert "-------------------------------------------------------------------------------\n")
+      (insert "\n")
+      (insert "Priority 2\n")
+      (insert "-------------------------------------------------------------------------------\n")
+      (insert "\n")
+      (insert "Priority 3\n")
+      (insert "-------------------------------------------------------------------------------\n")
+      (insert "\n")
+      (insert "Priority 4\n")
+      (insert "-------------------------------------------------------------------------------\n")
+      (insert "\n")
+      (save-buffer))))
 
 (defun todo-buffer-display ()
   "Display the todo buffer and activate todo-mode."
@@ -140,6 +131,12 @@
 ;;=============================================================================
 ;; Todo mode functions
 ;;=============================================================================
+
+(defun todo-create-p0 (&optional insertFirst)
+  "Create a priority 0 todo."
+  (interactive)
+  (let ((description (read-from-minibuffer "Description: ")))
+    (todo-create "0" description (if insertFirst insertFirst t))))
 
 (defun todo-create-p1 (&optional insertFirst)
   "Create a priority 1 todo."
@@ -184,8 +181,8 @@ If INSERTFIRST is explicitly nil, insert at current position; otherwise insert a
     (when (or (not description) (string= description ""))
       (error "Description cannot be empty"))
 
-    (when (not (member priority '("1" "2" "3" "4")))
-      (error "Priority must be 1, 2, 3, or 4"))
+    (when (not (member priority '("0" "1" "2" "3" "4")))
+      (error "Priority must be 0, 1, 2, 3, or 4"))
 
     ;; Create the todo line
     (let ((todo-line (if (and due-date (not (string= due-date "")))
@@ -231,6 +228,11 @@ If INSERTFIRST is explicitly nil, insert at current position; otherwise insert a
            ((string= current-priority "4") (todo-create-p4 nil)))
         (message "Could not determine current priority section"))))))
 
+(defun todo-update-p0 ()
+  "Update current todo to priority 0."
+  (interactive)
+  (todo-update-priority "0"))
+
 (defun todo-update-p1 ()
   "Update current todo to priority 1."
   (interactive)
@@ -255,7 +257,7 @@ If INSERTFIRST is explicitly nil, insert at current position; otherwise insert a
   "Raise priority of current todo by 1 (lower number = higher priority)."
   (interactive)
   (let ((current-priority (todo-get-current-priority)))
-    (when (and current-priority (> (string-to-number current-priority) 1))
+    (when (and current-priority (> (string-to-number current-priority) 0))
       (let ((new-priority (number-to-string (1- (string-to-number current-priority)))))
         (todo-update-priority new-priority)))))
 
@@ -436,10 +438,10 @@ If INSERTFIRST is explicitly nil, insert at current position; otherwise insert a
   (beginning-of-line)
   (when (looking-at-todo)
 
-    ;; 1. Check if 2 lines above is Priority 1 line
+    ;; 1. Check if 2 lines above is Priority 0 line
     (let ((two-lines-up (save-excursion
                           (forward-line -2)
-                          (looking-at "^Priority 1$"))))
+                          (looking-at "^Priority 0$"))))
       (if two-lines-up
           (message "Cannot move up - already at first item")
 
@@ -493,7 +495,13 @@ If INSERTFIRST is explicitly nil, insert at current position; otherwise insert a
     (let ((current-pos (point)))
       (goto-char (point-min))
       (cond
-       ((and (re-search-forward "^Priority 1$" nil t)
+       ((and (re-search-forward "^Priority 0$" nil t)
+             (< (point) current-pos)
+             (or (not (re-search-forward "^Priority 1$" nil t))
+                 (> (point) current-pos)))
+        "0")
+       ((and (goto-char (point-min))
+             (re-search-forward "^Priority 1$" nil t)
              (< (point) current-pos)
              (or (not (re-search-forward "^Priority 2$" nil t))
                  (> (point) current-pos)))

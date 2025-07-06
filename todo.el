@@ -1,4 +1,4 @@
-1(defcustom todo-file "~/.todo"
+(defcustom todo-file "~/.todo"
   "File containing outstanding todo items."
   :type 'string
   :group 'todo)
@@ -93,25 +93,39 @@
     map))
 
 (defun todo-ensure-file-format ()
-  "Ensure the todo file has the proper section headers."
+  "Ensure the todo file has the proper section headers, preserving existing content."
   (save-excursion
     (goto-char (point-min))
-    (unless (looking-at "Priority 1")
-      ;; File doesn't have proper format, initialize it
-      (erase-buffer)
-      (insert "Priority 1\n")
-      (insert "-------------------------------------------------------------------------------\n")
-      (insert "\n")
-      (insert "Priority 2\n")
-      (insert "-------------------------------------------------------------------------------\n")
-      (insert "\n")
-      (insert "Priority 3\n")
-      (insert "-------------------------------------------------------------------------------\n")
-      (insert "\n")
-      (insert "Priority 4\n")
-      (insert "-------------------------------------------------------------------------------\n")
-      (insert "\n")
-      (save-buffer))))
+    (let ((has-priority-1 (re-search-forward "^Priority 1$" nil t))
+          (has-priority-2 (progn (goto-char (point-min)) (re-search-forward "^Priority 2$" nil t)))
+          (has-priority-3 (progn (goto-char (point-min)) (re-search-forward "^Priority 3$" nil t)))
+          (has-priority-4 (progn (goto-char (point-min)) (re-search-forward "^Priority 4$" nil t)))
+          (buffer-empty (= (buffer-size) 0)))
+
+      ;; Only initialize if buffer is completely empty OR missing all priority sections
+      (when (or buffer-empty
+                (not (or has-priority-1 has-priority-2 has-priority-3 has-priority-4)))
+        ;; If buffer has content but no priority sections, preserve it by moving to end
+        (unless buffer-empty
+          (goto-char (point-max))
+          (unless (bolp) (insert "\n"))
+          (insert "\n--- Previous content preserved below ---\n"))
+
+        ;; Add priority sections at the beginning
+        (goto-char (point-min))
+        (insert "Priority 1\n")
+        (insert "-------------------------------------------------------------------------------\n")
+        (insert "\n")
+        (insert "Priority 2\n")
+        (insert "-------------------------------------------------------------------------------\n")
+        (insert "\n")
+        (insert "Priority 3\n")
+        (insert "-------------------------------------------------------------------------------\n")
+        (insert "\n")
+        (insert "Priority 4\n")
+        (insert "-------------------------------------------------------------------------------\n")
+        (insert "\n")
+        (save-buffer)))))
 
 (defun todo-buffer-display ()
   "Display the todo buffer and activate todo-mode."
@@ -130,35 +144,41 @@
 (defun todo-create-p1 (&optional insertFirst)
   "Create a priority 1 todo."
   (interactive)
-  (let ((description (read-from-minibuffer "Description: ")))
-    (todo-create "1" description (if insertFirst insertFirst t))))
+  (let* ((description (read-from-minibuffer "Description: "))
+         (due-date (read-from-minibuffer "Due date (YYYY-MM-DD): ")))
+    (todo-create "1" description (if insertFirst insertFirst t) due-date)))
 
 (defun todo-create-p2 (&optional insertFirst)
   "Create a priority 2 todo."
   (interactive)
-  (let ((description (read-from-minibuffer "Description: ")))
-    (todo-create "2" description (if insertFirst insertFirst t))))
+  (let* ((description (read-from-minibuffer "Description: "))
+         (due-date (read-from-minibuffer "Due date (YYYY-MM-DD): ")))
+    (todo-create "2" description (if insertFirst insertFirst t) due-date)))
 
 (defun todo-create-p3 (&optional insertFirst)
   "Create a priority 3 todo."
   (interactive)
-  (let ((description (read-from-minibuffer "Description: ")))
-    (todo-create "3" description (if insertFirst insertFirst t))))
+  (let* ((description (read-from-minibuffer "Description: "))
+         (due-date (read-from-minibuffer "Due date (YYYY-MM-DD): ")))
+    (todo-create "3" description (if insertFirst insertFirst t) due-date)))
 
 (defun todo-create-p4 (&optional insertFirst)
   "Create a priority 4 todo."
   (interactive)
-  (let ((description (read-from-minibuffer "Description: ")))
-    (todo-create "4" description (if insertFirst insertFirst t))))
+  (let* ((description (read-from-minibuffer "Description: "))
+         (due-date (read-from-minibuffer "Due date (YYYY-MM-DD): ")))
+    (todo-create "4" description (if insertFirst insertFirst t) due-date)))
 
-(defun todo-create (&optional priority description insertFirst)
+(defun todo-create (&optional priority description insertFirst due-date)
   "Create a new todo item with PRIORITY and DESCRIPTION.
 If INSERTFIRST is explicitly nil, insert at current position; otherwise insert at top of section."
   (interactive)
   (let* ((priority (or priority
                        (completing-read "Priority (1-4): " '("1" "2" "3" "4") nil t)))
          (description (or description
-                          (read-from-minibuffer "Description: "))))
+                          (read-from-minibuffer "Description: ")))
+         (due-date (or due-date
+                       (read-from-minibuffer "Due date (YYYY-MM-DD): "))))
 
     ;; Validate inputs
     (when (or (not description) (string= description ""))
@@ -168,25 +188,28 @@ If INSERTFIRST is explicitly nil, insert at current position; otherwise insert a
       (error "Priority must be 1, 2, 3, or 4"))
 
     ;; Create the todo line
-    (if (not (eq insertFirst nil))
-        ;; Insert at top of priority section (original behavior)
-        (let ((insert-point (todo-find-priority-section priority)))
-          (if insert-point
-              (progn
-                (goto-char insert-point)
-                (open-line 1)
-                (insert description)
-                (beginning-of-line)
-                (save-buffer)
-                (message "Todo added to Priority %s: %s" priority description))
-            (error "Could not find Priority %s section" priority)))
-      ;; Insert at current position
-      (progn
-        (open-line 1)
-        (insert description)
-        (beginning-of-line)
-        (save-buffer)
-                 (message "Todo added to Priority %s: %s" priority description)))))
+    (let ((todo-line (if (and due-date (not (string= due-date "")))
+                         (format "[%s] %s" due-date description)
+                       description)))
+      (if (not (eq insertFirst nil))
+          ;; Insert at top of priority section (original behavior)
+          (let ((insert-point (todo-find-priority-section priority)))
+            (if insert-point
+                (progn
+                  (goto-char insert-point)
+                  (open-line 1)
+                  (insert todo-line)
+                  (beginning-of-line)
+                  (save-buffer)
+                  (message "Todo added to Priority %s: %s" priority todo-line))
+              (error "Could not find Priority %s section" priority)))
+        ;; Insert at current position
+        (progn
+          (open-line 1)
+          (insert todo-line)
+          (beginning-of-line)
+          (save-buffer)
+                   (message "Todo added to Priority %s: %s" priority todo-line))))))
 
 (defun todo-create-pcurrent ()
   "Create a todo item in the current priority section at current position."
@@ -354,7 +377,7 @@ If INSERTFIRST is explicitly nil, insert at current position; otherwise insert a
             (switch-to-buffer todo-complete-buffer)
           (find-file todo-file-completed))
 
-        (end-of-buffer)
+        (goto-char (point-min))
         (insert (get-date) " " todo-line "\n")
         (when (and comments (not (string= comments "")))
           (insert "    " comments "\n"))
